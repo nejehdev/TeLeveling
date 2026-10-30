@@ -1,5 +1,5 @@
 name: TeLeveling
-version: 0.1.2
+version: 0.1.4
 main: dev.nejeh.televeling.TeLevelingPlugin
 api-version: '1.21'
 description: Configurable player levels and experience

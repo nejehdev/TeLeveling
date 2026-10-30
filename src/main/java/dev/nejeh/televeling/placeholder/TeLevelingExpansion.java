@@ -45,6 +45,9 @@ public final class TeLevelingExpansion extends PlaceholderExpansion {
         String normalized = params.toLowerCase(Locale.ROOT);
         boolean next = normalized.startsWith("nextlevel_");
         String selector = next ? normalized.substring("nextlevel_".length()) : normalized;
+        if (next && selector.startsWith("level_")) {
+            selector = selector.substring("level_".length());
+        }
         if (selector.startsWith("level_")) {
             return levelValue(player, selector.substring("level_".length()), next);
         }
@@ -54,7 +57,7 @@ public final class TeLevelingExpansion extends PlaceholderExpansion {
         if (selector.startsWith("xp_")) {
             return experience(player, selector.substring("xp_".length()));
         }
-        return null;
+        return next ? levelValue(player, selector, true) : null;
     }
 
     private String levelValue(OfflinePlayer player, String selector, boolean next) {

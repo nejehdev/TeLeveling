@@ -7,7 +7,7 @@ starting-experience: 0
 symbol:
   1: "✦"
   10: "✪"
-format: "%level% %symbol%"
+format: "%level%%symbol%"
 colors:
   1: "&7"
   10: "&b"

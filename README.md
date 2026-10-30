@@ -25,7 +25,7 @@ starting-experience: 0
 symbols:
   1: "✦"
   10: "✪"
-format: "%level% %symbol%"
+format: "%level%%symbol%"
 colors:
   1: "&7"
   10: "&b"
@@ -41,6 +41,7 @@ experience-require:
 ```
 
 - `symbols` y `colors` seleccionan la clave más alta que no supere el nivel actual. Varias entradas separadas por coma en `colors` alternan el color a través del texto.
+- `format` define exactamente cómo se reemplazan `%level%` y `%symbol%` en el placeholder. Por ejemplo, `format: "%level%%symbol%"` produce `1◆`; las variantes `noicon` y `nocolor` omiten solo el ícono o el color, respectivamente.
 - `experience-require.level` tiene prioridad para el nivel indicado; si no existe, se evalúa `general-formula`, donde `{level}` es el nivel actual. Se admiten números, paréntesis y `+`, `-`, `*`, `/`, `%`; no se ejecuta código de la fórmula.
 - `max-level: -1` no limita la progresión. En el máximo configurado, la XP deja de aumentar.
 - `syncronized: true` guarda los datos en el almacenamiento configurado. `column-name` es una clave estable por nivel compartida por los servidores de la red, no un nombre interpolado en SQL.
@@ -73,11 +74,11 @@ Los comandos administrativos requieren `televeling.admin` (por defecto, operador
 
 `[nivel]` es el identificador del archivo YAML, sin `.yml`.
 
-- `%televeling_level_[nivel]%`
+- `%televeling_level_[nivel]%` devuelve el formato del nivel, incluyendo color, número e ícono configurados.
 - `%televeling_level_nocolor_[nivel]%`
 - `%televeling_level_noicon_[nivel]%`
 - `%televeling_level_raw_[nivel]%`
-- Las mismas variantes con `nextlevel` después del prefijo: `%televeling_nextlevel_level_[nivel]%`, `%televeling_nextlevel_level_raw_[nivel]%`, etc.
+- Las mismas variantes sustituyendo `level` por `nextlevel`: `%televeling_nextlevel_[nivel]%`, `%televeling_nextlevel_nocolor_[nivel]%`, `%televeling_nextlevel_noicon_[nivel]%` y `%televeling_nextlevel_raw_[nivel]%`. La variante completa también devuelve el color, número e ícono del nivel siguiente. Se mantiene compatibilidad con el formato anterior `%televeling_nextlevel_level_[nivel]%`.
 - `%televeling_xp_[nivel]%`
 - `%televeling_xp_required_[nivel]%`
 - También se aceptan `nextlevel_xp_required` para consultar la XP requerida en el nivel siguiente.
@@ -88,7 +89,7 @@ Los comandos administrativos requieren `televeling.admin` (por defecto, operador
 .\gradlew.bat build
 ```
 
-El JAR de distribución se genera en `build/libs/TeLeveling-0.1.2.jar`.
+El JAR de distribución se genera en `build/libs/TeLeveling-0.1.4.jar`.
 
 ## Publicar una release en GitHub
 
