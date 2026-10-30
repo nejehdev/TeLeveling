@@ -1,0 +1,21 @@
+name: "BedWars"
+command-alias:
+  - "bedwarslevel"
+  - "bwlevel"
+starting-level: 0
+starting-experience: 0
+symbol:
+  1: "✦"
+  10: "✪"
+format: "%level% %symbol%"
+colors:
+  1: "&7"
+  10: "&b"
+max-level: -1
+permission: ""
+column-name: "bedwars_levels"
+syncronized: true
+experience-require:
+  general-formula: "100 * ({level} + 1)"
+  level:
+    0: 50

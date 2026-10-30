@@ -1,0 +1,25 @@
+storage:
+  type: SQLITE
+  sqlite:
+    file: data.db
+  mysql:
+    host: localhost
+    port: 3306
+    database: televeling
+    username: root
+    password: ""
+    use-ssl: false
+    verify-server-certificate: true
+    allow-public-key-retrieval: false
+    connection-timeout: 10000
+
+level-bar:
+  enabled: true
+  name: example
+
+round-digits: 2
+save-time: 10
+line-icon: "&8■"
+
+messages:
+  center-width: 53

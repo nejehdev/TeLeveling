@@ -1,2 +1,93 @@
 # TeLeveling
-Sistema de niveles dentro del servidor; puedes crear niveles ilimitados.
+
+Plugin de niveles configurables para Paper. Permite mantener varios sistemas de progreso por jugador, cada uno definido por un archivo YAML.
+
+## Requisitos
+
+- Java 21 o superior, según lo que requiera la versión del servidor. El plugin detecta e informa la JVM activa una vez cargado; no puede cambiar la JVM con la que se inició Minecraft. Un servidor debe arrancar con Java 21 o superior para cargar este bytecode.
+- Paper 1.21 o posterior. El artefacto se compila contra Paper API 1.21.4 y usa bytecode Java 21; Minecraft 26.2 requiere que el servidor se ejecute con Java 25.
+- PlaceholderAPI es opcional; sin él siguen funcionando los placeholders propios de TeLeveling.
+- En modo semipremium, TeLeveling usa el UUID entregado por Paper. En redes con proxy, configura correctamente el forwarding para que el UUID sea estable entre servidores.
+
+## Archivos de configuración
+
+Al iniciar, el plugin crea `plugins/TeLeveling/config.yml`, `messages.yml` y `levels/`. También añade claves que falten sin reemplazar los valores que ya configuraste. En una carpeta `levels` nueva genera `example.yml`; puedes modificarlo, añadir más `.yml` o eliminarlo.
+
+Cada archivo de nivel utiliza su nombre sin extensión como identificador, por ejemplo `levels/bedwars.yml` crea el nivel `bedwars`.
+
+```yaml
+name: "BedWars"
+command-alias:
+  - "bedwarslevel"
+  - "bwlevel"
+starting-level: 0
+starting-experience: 0
+symbols:
+  1: "✦"
+  10: "✪"
+format: "%level% %symbol%"
+colors:
+  1: "&7"
+  10: "&b"
+  100: "&a,&b,&c"
+max-level: -1
+permission: ""
+column-name: "bedwars_levels"
+syncronized: true
+experience-require:
+  general-formula: "100 * ({level} + 1)"
+  level:
+    0: 50
+```
+
+- `symbols` y `colors` seleccionan la clave más alta que no supere el nivel actual. Varias entradas separadas por coma en `colors` alternan el color a través del texto.
+- `experience-require.level` tiene prioridad para el nivel indicado; si no existe, se evalúa `general-formula`, donde `{level}` es el nivel actual. Se admiten números, paréntesis y `+`, `-`, `*`, `/`, `%`; no se ejecuta código de la fórmula.
+- `max-level: -1` no limita la progresión. En el máximo configurado, la XP deja de aumentar.
+- `syncronized: true` guarda los datos en el almacenamiento configurado. `column-name` es una clave estable por nivel compartida por los servidores de la red, no un nombre interpolado en SQL.
+- Los jugadores y sus progresos se identifican por UUID; los alias son comandos dinámicos registrados al cargar el plugin.
+
+La configuración `storage.type` acepta `SQLITE` o `MYSQL`. SQLite guarda el archivo en la carpeta del plugin. MySQL permite indicar host, puerto, base de datos, usuario, contraseña, SSL, validación de certificado y recuperación de clave pública. El plugin crea la tabla `televeling_player_levels`; comparte la base MySQL y el mismo `column-name` en cada servidor para sincronizar un nivel.
+
+Por ahora, la experiencia se administra con los comandos de operador; no hay recompensas automáticas por eventos del juego. Los cambios de progreso se escriben en la base de datos inmediatamente para evitar perder datos o sobrescribir XP de otro servidor. `save-time` (segundos) determina cada cuánto se vuelve a consultar el almacenamiento para actualizar la caché local de jugadores conectados. Los niveles con `syncronized: false` permanecen solo en memoria durante esa sesión.
+
+`level-bar.enabled` muestra el avance del nivel seleccionado por `level-bar.name` en la barra de experiencia de Minecraft. TeLeveling actualiza solo la barra que ve el jugador; no modifica su nivel ni su XP vanilla almacenados.
+
+`messages.yml` admite mensajes como texto o listas de líneas. `{line}` repite `line-icon` según el ancho configurado y `{center}` aplica centrado aproximado con `messages.center-width`. Con PlaceholderAPI instalado, también se expanden placeholders externos dentro de los mensajes.
+
+## Comandos
+
+- `/televeling help`
+- `/televeling reload`
+- `/televeling addxp <jugador_conectado> <nivel> <cantidad>`
+- `/televeling removexp <jugador_conectado> <nivel> <cantidad>`
+- `/televeling setxp <jugador_conectado> <nivel> <cantidad>`
+- `/televeling setlevel <jugador_conectado> <nivel-id> <nuevo-nivel>`
+- `/televeling reset <jugador_conectado> <nivel>`
+- Cada alias declarado en `command-alias` muestra el progreso de ese nivel.
+
+Los comandos de administración requieren `televeling.admin` (por defecto, operadores). Los jugadores necesitan el permiso configurado en el nivel solo para usar su comando de consulta.
+
+## Placeholders propios
+
+`[nivel]` es el identificador del archivo YAML, sin `.yml`.
+
+- `%televeling_level_[nivel]%`
+- `%televeling_level_nocolor_[nivel]%`
+- `%televeling_level_noicon_[nivel]%`
+- `%televeling_level_raw_[nivel]%`
+- Las mismas variantes con `nextlevel` después del prefijo: `%televeling_nextlevel_level_[nivel]%`, `%televeling_nextlevel_level_raw_[nivel]%`, etc.
+- `%televeling_xp_[nivel]%`
+- `%televeling_xp_required_[nivel]%`
+- También se aceptan `nextlevel_xp_required` para consultar la XP requerida en el nivel siguiente.
+
+## Compilar
+
+```powershell
+.\gradlew.bat build
+```
+
+El JAR de distribución se genera en `build/libs/TeLeveling-0.0.1.jar`.
+
+## Publicar una release en GitHub
+
+Al subir cualquier etiqueta Git, por ejemplo `0.0.1` o `v0.0.1`, el workflow `.github/workflows/release.yml` compila y prueba el proyecto con Java 21 y publica una GitHub Release cuyo título coincide con la etiqueta. El JAR adjunto se llama `TeLeveling-<etiqueta>.jar`. El workflow necesita el permiso `contents: write`, configurado en el propio archivo.

@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and test
+        run: ./gradlew --no-daemon clean build
+
+      - name: Name release JAR after tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          source_jar="$(find build/libs -maxdepth 1 -type f -name 'TeLeveling-*.jar' ! -name '*-plain.jar' -print -quit)"
+          test -n "$source_jar"
+          cp "$source_jar" "build/libs/TeLeveling-${RELEASE_TAG}.jar"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" "build/libs/TeLeveling-${RELEASE_TAG}.jar" --title "$RELEASE_TAG" --generate-notes
