@@ -172,7 +172,7 @@ public final class LevelDefinition {
     }
 
     public boolean hasNextLevel(int currentLevel) {
-        return maxLevel < 0 || currentLevel < maxLevel;
+        return currentLevel < Integer.MAX_VALUE && (maxLevel < 0 || currentLevel < maxLevel);
     }
 
     public String format() {

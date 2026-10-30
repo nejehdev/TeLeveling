@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class LevelProgressionTest {
     @Test
@@ -112,5 +114,66 @@ class LevelProgressionTest {
         PlayerLevelData taken = LevelProgression.removeLevels(given, 3);
         assertEquals(2, taken.level());
         assertEquals(25, taken.experience());
+    }
+
+    @Test
+    void rejectsExperienceMutationThatWouldCrossTooManyLevels() throws Exception {
+        YamlConfiguration yaml = new YamlConfiguration();
+        yaml.loadFromString("""
+                name: Test
+                command-alias: [testlevel]
+                starting-level: 0
+                starting-experience: 0
+                max-level: -1
+                column-name: test_levels
+                experience-require:
+                  general-formula: "0.0001"
+                  level: {}
+                """);
+        LevelDefinition definition = LevelDefinition.from("test", yaml);
+        PlayerLevelData initial = new PlayerLevelData(UUID.randomUUID(), "Player", "test", 0, 0);
+
+        assertThrows(ProgressionLimitException.class,
+                () -> LevelProgression.addExperience(definition, initial, 2));
+    }
+
+    @Test
+    void rejectsExperienceRemovalThatWouldCrossTooManyLevels() throws Exception {
+        YamlConfiguration yaml = new YamlConfiguration();
+        yaml.loadFromString("""
+                name: Test
+                command-alias: [testlevel]
+                starting-level: 0
+                starting-experience: 0
+                max-level: -1
+                column-name: test_levels
+                experience-require:
+                  general-formula: "0.0001"
+                  level: {}
+                """);
+        LevelDefinition definition = LevelDefinition.from("test", yaml);
+        PlayerLevelData initial = new PlayerLevelData(UUID.randomUUID(), "Player", "test", 20_000, 0);
+
+        assertThrows(ProgressionLimitException.class,
+                () -> LevelProgression.removeExperience(definition, initial, 2));
+    }
+
+    @Test
+    void doesNotAllowProgressionPastTheIntegerLevelLimit() throws Exception {
+        YamlConfiguration yaml = new YamlConfiguration();
+        yaml.loadFromString("""
+                name: Test
+                command-alias: [testlevel]
+                starting-level: 0
+                starting-experience: 0
+                max-level: -1
+                column-name: test_levels
+                experience-require:
+                  general-formula: "1"
+                  level: {}
+                """);
+        LevelDefinition definition = LevelDefinition.from("test", yaml);
+
+        assertFalse(definition.hasNextLevel(Integer.MAX_VALUE));
     }
 }

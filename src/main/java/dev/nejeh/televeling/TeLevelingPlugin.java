@@ -1,10 +1,12 @@
 package dev.nejeh.televeling;
 
+import dev.nejeh.televeling.command.CommandNumberLimits;
 import dev.nejeh.televeling.command.DynamicCommandRegistrar;
 import dev.nejeh.televeling.level.LevelDefinition;
 import dev.nejeh.televeling.level.LevelProgression;
 import dev.nejeh.televeling.level.LevelRegistry;
 import dev.nejeh.televeling.level.PlayerLevelData;
+import dev.nejeh.televeling.level.ProgressionLimitException;
 import dev.nejeh.televeling.level.ProgressService;
 import dev.nejeh.televeling.placeholder.TeLevelingExpansion;
 import dev.nejeh.televeling.storage.DatabaseManager;
@@ -59,6 +61,7 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
 
         try {
             prepareConfigurationFiles();
+            normalizeCommandMaximums();
             levels = new LevelRegistry(this);
             levels.reload();
             text = new TextFormatter(this);
@@ -234,11 +237,13 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
 
         String value = arguments.get(2);
         if (action.equals("setlevel") || action.equals("givelevel") || action.equals("takelevel")) {
-            Integer amount = parseInteger(value);
-            if (amount == null || amount < (action.equals("setlevel") ? 0 : 1)
-                    || (action.equals("setlevel") && definition.maxLevel() >= 0
+            Integer amount = CommandNumberLimits.parseLevel(
+                    value,
+                    getConfig().getInt("level-max", CommandNumberLimits.MAX_LEVEL_AMOUNT)
+            );
+            if (amount == null || (action.equals("setlevel") && definition.maxLevel() >= 0
                     && amount > definition.maxLevel())) {
-                messages.send(sender, "invalid-number");
+                messages.send(sender, "invalid-level-number");
                 return true;
             }
             UnaryOperator<PlayerLevelData> mutation = switch (action) {
@@ -254,12 +259,19 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
             return true;
         }
 
-        Double amount = parseAmount(value);
-        if (amount == null || (amount <= 0 && !action.equals("setxp"))) {
-            messages.send(sender, "invalid-number");
+        Double amount = CommandNumberLimits.parseExperience(
+                value,
+                getConfig().getDouble("xp-max", CommandNumberLimits.MAX_EXPERIENCE_AMOUNT)
+        );
+        if (amount == null) {
+            messages.send(sender, "invalid-xp-number");
             return true;
         }
         double roundedAmount = progress.round(amount);
+        if (roundedAmount <= 0) {
+            messages.send(sender, "invalid-xp-number");
+            return true;
+        }
         UnaryOperator<PlayerLevelData> mutation = switch (action) {
             case "givexp" -> (UnaryOperator<PlayerLevelData>)
                     current -> LevelProgression.addExperience(definition, current, roundedAmount);
@@ -315,6 +327,7 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
             reloadConfig();
             mergeDefaults(getConfig(), resourceDefaults("config.yml"), new File(getDataFolder(), "config.yml"));
             reloadConfig();
+            normalizeCommandMaximums();
             levels.reload();
             loadMessages();
             lineIcon = getConfig().getString("line-icon", "&8■");
@@ -372,6 +385,10 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
     ) {
         runOnMainThread(() -> {
             if (error != null) {
+                if (hasCause(error, ProgressionLimitException.class)) {
+                    messages.send(sender, "progression-limit-exceeded");
+                    return;
+                }
                 getLogger().log(Level.SEVERE, "Could not update " + target.getName() + "'s level data.", error);
                 messages.send(sender, "database-error");
                 return;
@@ -404,7 +421,7 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
             if (!flags.noFeedback()) {
                 messages.send(sender, feedbackKey, values);
             }
-            if (!flags.silent() && target.isOnline() && (target != sender || flags.noFeedback())) {
+            if (!flags.silent() && target.isOnline()) {
                 messages.send(target, targetKey, values);
             }
         });
@@ -423,12 +440,64 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
         );
     }
 
+    private void normalizeCommandMaximums() {
+        boolean changed = false;
+        Object configuredXpMaximum = getConfig().get("xp-max");
+        double requestedXpMaximum = configuredXpMaximum instanceof Number number
+                ? number.doubleValue() : Double.NaN;
+        double xpMaximum = CommandNumberLimits.normalizeConfiguredMaximum(
+                requestedXpMaximum,
+                CommandNumberLimits.MAX_EXPERIENCE_AMOUNT,
+                "xp-max",
+                getLogger()::warning
+        );
+        if (!(configuredXpMaximum instanceof Number)
+                || Double.compare(requestedXpMaximum, xpMaximum) != 0) {
+            getConfig().set("xp-max", xpMaximum);
+            changed = true;
+        }
+
+        Object configuredLevelMaximum = getConfig().get("level-max");
+        double requestedLevelMaximum = configuredLevelMaximum instanceof Number number
+                ? number.doubleValue() : Double.NaN;
+        double levelMaximum = CommandNumberLimits.normalizeConfiguredMaximum(
+                requestedLevelMaximum,
+                CommandNumberLimits.MAX_LEVEL_AMOUNT,
+                "level-max",
+                getLogger()::warning
+        );
+        if (!(configuredLevelMaximum instanceof Number)
+                || Double.compare(requestedLevelMaximum, levelMaximum) != 0
+                || levelMaximum != Math.rint(levelMaximum)) {
+            if (levelMaximum == Math.rint(levelMaximum)) {
+                getConfig().set("level-max", (int) levelMaximum);
+            } else {
+                getLogger().warning("level-max must be an integer; using the internal maximum "
+                        + CommandNumberLimits.MAX_LEVEL_AMOUNT + ".");
+                getConfig().set("level-max", CommandNumberLimits.MAX_LEVEL_AMOUNT);
+            }
+            changed = true;
+        }
+        if (changed) {
+            saveConfig();
+        }
+    }
+
     private void runOnMainThread(Runnable task) {
         if (Bukkit.isPrimaryThread()) {
             task.run();
         } else if (isEnabled()) {
             Bukkit.getScheduler().runTask(this, task);
         }
+    }
+
+    private static boolean hasCause(Throwable error, Class<? extends Throwable> expectedType) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (expectedType.isInstance(cause)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void setupPlaceholderApi() {
@@ -504,23 +573,6 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
             }
         }
         return new ParsedArguments(List.copyOf(arguments), new CommandFlags(silent, noFeedback));
-    }
-
-    private static Double parseAmount(String input) {
-        try {
-            double amount = Double.parseDouble(input);
-            return Double.isFinite(amount) && amount >= 0 ? amount : null;
-        } catch (NumberFormatException exception) {
-            return null;
-        }
-    }
-
-    private static Integer parseInteger(String input) {
-        try {
-            return Integer.parseInt(input);
-        } catch (NumberFormatException exception) {
-            return null;
-        }
     }
 
     private static List<String> matching(List<String> values, String prefix) {

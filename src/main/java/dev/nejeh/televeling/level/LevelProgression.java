@@ -1,6 +1,8 @@
 package dev.nejeh.televeling.level;
 
 public final class LevelProgression {
+    public static final int MAX_LEVEL_TRANSITIONS_PER_MUTATION = 10_000;
+
     private LevelProgression() {
     }
 
@@ -17,6 +19,7 @@ public final class LevelProgression {
         }
 
         int level = data.level();
+        int transitions = 0;
         double experience = data.experience() + amount;
         if (!Double.isFinite(experience)) {
             throw new IllegalArgumentException("Total experience must be finite.");
@@ -26,8 +29,12 @@ public final class LevelProgression {
             if (experience + 1.0E-9 < required) {
                 break;
             }
+            if (transitions == MAX_LEVEL_TRANSITIONS_PER_MUTATION) {
+                throw new ProgressionLimitException();
+            }
             experience = Math.max(0, experience - required);
             level++;
+            transitions++;
         }
         return data.withProgress(level, experience);
     }
@@ -86,11 +93,16 @@ public final class LevelProgression {
         int level = data.level();
         double experience = data.experience();
         double remaining = amount;
+        int transitions = 0;
 
         while (remaining > experience && level > 0) {
+            if (transitions == MAX_LEVEL_TRANSITIONS_PER_MUTATION) {
+                throw new ProgressionLimitException();
+            }
             remaining -= experience;
             level--;
             experience = definition.requiredExperience(level);
+            transitions++;
         }
         experience = Math.max(0, experience - remaining);
         return data.withProgress(level, experience);

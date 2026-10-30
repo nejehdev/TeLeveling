@@ -13,6 +13,8 @@ Plugin de niveles configurables para Paper. Permite mantener varios sistemas de 
 
 Al iniciar, el plugin crea `plugins/TeLeveling/config.yml`, `messages.yml` y `levels/`. También añade claves que falten sin reemplazar los valores que ya configuraste. En una carpeta `levels` nueva genera `example.yml`; puedes modificarlo, añadir más `.yml` o eliminarlo. `/televeling reload` vuelve a cargar la configuración y todos los niveles: los comandos de niveles eliminados se desregistran y los nuevos o modificados se registran con sus aliases actualizados. Los datos históricos de los niveles eliminados permanecen en la base de datos, pero el servidor deja de consultarlos.
 
+`xp-max` y `level-max` en `config.yml` limitan los números aceptados por comandos. Sus techos internos son `1,000,000` XP y `10,000` niveles. Si un valor configurado supera su techo, no es numérico o es inválido, se advierte en consola y se guarda el máximo interno en la configuración.
+
 Cada archivo de nivel utiliza su nombre sin extensión como identificador, por ejemplo `levels/bedwars.yml` crea el nivel `bedwars`.
 
 ```yaml
@@ -66,6 +68,7 @@ Para reducir el consumo, TeLeveling usa una sola conexión de base de datos acti
 - Cada archivo de nivel registra un comando principal y sus aliases. Sin argumentos muestra el progreso; `<cmd> help` enseña la ayuda de ese comando.
 - `/<cmd> givexp <jugador-conectado> <cantidad>`, `givelevel <jugador-conectado> <cantidad>`, `setxp <jugador-conectado> <cantidad>`, `setlevel <jugador-conectado> <nivel>`, `takexp <jugador-conectado> <cantidad>`, `takelevel <jugador-conectado> <cantidad>` y `reset <jugador-conectado>` administran el progreso.
 - `givelevel` y `takelevel` cambian niveles sin alterar la XP actual; `setlevel` fija el nivel conservando la XP actual. `setxp` reemplaza la XP del nivel y aplica los ascensos que correspondan. Al quitar XP se descienden niveles cuando hace falta y la XP restante se descuenta desde la barra del nivel anterior.
+- Para limitar cálculos y evitar valores desbordados, cada argumento numérico de comando debe ser positivo y no superar el límite configurado. No se aceptan texto, `NaN`, infinito, notación hexadecimal ni notación científica. Una operación de XP también se rechaza si cruzaría más de `10,000` niveles, incluso si el YAML define requisitos de XP muy pequeños. Para reiniciar a cero se usa `reset`.
 - Los subcomandos administrativos aceptan `-s` para silenciar el mensaje al jugador y `-f` para no enviar confirmación a quien ejecutó el comando. Se pueden combinar.
 
 Los comandos administrativos requieren `televeling.admin` (por defecto, operadores). Los jugadores necesitan el permiso configurado en el nivel solo para consultar su progreso.
@@ -89,7 +92,7 @@ Los comandos administrativos requieren `televeling.admin` (por defecto, operador
 .\gradlew.bat build
 ```
 
-El JAR de distribución se genera en `build/libs/TeLeveling-0.1.4.jar`.
+El JAR de distribución se genera en `build/libs/TeLeveling-0.1.7.jar`.
 
 ## Publicar una release en GitHub
 

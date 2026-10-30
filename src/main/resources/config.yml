@@ -16,6 +16,9 @@ storage:
 aliases:
   - "tl"
 
+xp-max: 1000000
+level-max: 10000
+
 level-bar:
   enabled: true
   name: example
