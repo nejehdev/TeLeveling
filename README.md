@@ -11,7 +11,7 @@ Plugin de niveles configurables para Paper. Permite mantener varios sistemas de 
 
 ## Archivos de configuración
 
-Al iniciar, el plugin crea `plugins/TeLeveling/config.yml`, `messages.yml` y `levels/`. También añade claves que falten sin reemplazar los valores que ya configuraste. En una carpeta `levels` nueva genera `example.yml`; puedes modificarlo, añadir más `.yml` o eliminarlo.
+Al iniciar, el plugin crea `plugins/TeLeveling/config.yml`, `messages.yml` y `levels/`. También añade claves que falten sin reemplazar los valores que ya configuraste. En una carpeta `levels` nueva genera `example.yml`; puedes modificarlo, añadir más `.yml` o eliminarlo. `/televeling reload` vuelve a cargar la configuración y todos los niveles: los comandos de niveles eliminados se desregistran y los nuevos o modificados se registran con sus aliases actualizados. Los datos históricos de los niveles eliminados permanecen en la base de datos, pero el servidor deja de consultarlos.
 
 Cada archivo de nivel utiliza su nombre sin extensión como identificador, por ejemplo `levels/bedwars.yml` crea el nivel `bedwars`.
 
@@ -88,7 +88,7 @@ Los comandos administrativos requieren `televeling.admin` (por defecto, operador
 .\gradlew.bat build
 ```
 
-El JAR de distribución se genera en `build/libs/TeLeveling-0.1.1.jar`.
+El JAR de distribución se genera en `build/libs/TeLeveling-0.1.2.jar`.
 
 ## Publicar una release en GitHub
 

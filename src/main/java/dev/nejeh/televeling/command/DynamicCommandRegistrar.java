@@ -5,10 +5,12 @@ import dev.nejeh.televeling.level.LevelDefinition;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandMap;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public final class DynamicCommandRegistrar {
     private final TeLevelingPlugin plugin;
@@ -21,10 +23,7 @@ public final class DynamicCommandRegistrar {
 
     public void reload() {
         resolveCommandMap();
-        for (Command command : registered) {
-            command.unregister(commandMap);
-        }
-        registered.clear();
+        unregisterAll();
 
         for (String alias : plugin.getConfig().getStringList("aliases")) {
             String normalized = alias.trim().toLowerCase(java.util.Locale.ROOT);
@@ -96,8 +95,39 @@ public final class DynamicCommandRegistrar {
             return;
         }
         for (Command command : registered) {
+            removeCommandMappings(command);
             command.unregister(commandMap);
         }
         registered.clear();
+    }
+
+    private void removeCommandMappings(Command command) {
+        Field field = findKnownCommandsField(commandMap.getClass());
+        try {
+            Object value = field.get(commandMap);
+            if (!(value instanceof Map<?, ?> knownCommands)) {
+                throw new IllegalStateException("Paper's command map has no known-commands map.");
+            }
+            removeCommandMappings(knownCommands, command);
+        } catch (IllegalAccessException exception) {
+            throw new IllegalStateException("Could not remove TeLeveling command mappings.", exception);
+        }
+    }
+
+    static void removeCommandMappings(Map<?, ?> knownCommands, Command command) {
+        knownCommands.keySet().removeIf(label -> knownCommands.get(label) == command);
+    }
+
+    private static Field findKnownCommandsField(Class<?> commandMapType) {
+        for (Class<?> type = commandMapType; type != null; type = type.getSuperclass()) {
+            try {
+                Field field = type.getDeclaredField("knownCommands");
+                field.setAccessible(true);
+                return field;
+            } catch (NoSuchFieldException exception) {
+                // Continue through the command-map implementation's superclass hierarchy.
+            }
+        }
+        throw new IllegalStateException("Paper's command map does not expose its known-commands map.");
     }
 }
