@@ -60,14 +60,14 @@ Para reducir el consumo, TeLeveling usa una sola conexión de base de datos acti
 
 - `/televeling help`
 - `/televeling reload`
-- `/televeling addxp <jugador_conectado> <nivel> <cantidad>`
-- `/televeling removexp <jugador_conectado> <nivel> <cantidad>`
-- `/televeling setxp <jugador_conectado> <nivel> <cantidad>`
-- `/televeling setlevel <jugador_conectado> <nivel-id> <nuevo-nivel>`
-- `/televeling reset <jugador_conectado> <nivel>`
-- Cada alias declarado en `command-alias` muestra el progreso de ese nivel.
+- `/televeling reset <nivel-id>` reinicia a nivel 0 y 0 XP todos los registros guardados de ese tipo.
+- `/televeling` acepta aliases definidos en la lista `aliases` de `config.yml` (por defecto, `tl`).
+- Cada archivo de nivel registra un comando principal y sus aliases. Sin argumentos muestra el progreso; `<cmd> help` enseña la ayuda de ese comando.
+- `/<cmd> givexp <jugador-conectado> <cantidad>`, `givelevel <jugador-conectado> <cantidad>`, `setxp <jugador-conectado> <cantidad>`, `setlevel <jugador-conectado> <nivel>`, `takexp <jugador-conectado> <cantidad>`, `takelevel <jugador-conectado> <cantidad>` y `reset <jugador-conectado>` administran el progreso.
+- `givelevel` y `takelevel` cambian niveles sin alterar la XP actual; `setlevel` fija el nivel conservando la XP actual. `setxp` reemplaza la XP del nivel y aplica los ascensos que correspondan. Al quitar XP se descienden niveles cuando hace falta y la XP restante se descuenta desde la barra del nivel anterior.
+- Los subcomandos administrativos aceptan `-s` para silenciar el mensaje al jugador y `-f` para no enviar confirmación a quien ejecutó el comando. Se pueden combinar.
 
-Los comandos de administración requieren `televeling.admin` (por defecto, operadores). Los jugadores necesitan el permiso configurado en el nivel solo para usar su comando de consulta.
+Los comandos administrativos requieren `televeling.admin` (por defecto, operadores). Los jugadores necesitan el permiso configurado en el nivel solo para consultar su progreso.
 
 ## Placeholders propios
 
@@ -88,7 +88,7 @@ Los comandos de administración requieren `televeling.admin` (por defecto, opera
 .\gradlew.bat build
 ```
 
-El JAR de distribución se genera en `build/libs/TeLeveling-0.0.2.jar`.
+El JAR de distribución se genera en `build/libs/TeLeveling-0.1.0.jar`.
 
 ## Publicar una release en GitHub
 

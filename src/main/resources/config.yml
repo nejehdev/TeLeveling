@@ -13,6 +13,9 @@ storage:
     allow-public-key-retrieval: false
     connection-timeout: 10000
 
+aliases:
+  - "tl"
+
 level-bar:
   enabled: true
   name: example

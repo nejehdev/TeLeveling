@@ -44,6 +44,55 @@ public final class LevelProgression {
         if (newLevel < 0) {
             throw new IllegalArgumentException("Level cannot be negative.");
         }
-        return data.withProgress(newLevel, 0);
+        return data.withProgress(newLevel, data.experience());
+    }
+
+    public static PlayerLevelData addLevels(
+            LevelDefinition definition,
+            PlayerLevelData data,
+            int amount
+    ) {
+        if (amount < 0) {
+            throw new IllegalArgumentException("Level amount cannot be negative.");
+        }
+        long target = (long) data.level() + amount;
+        if (definition.maxLevel() >= 0) {
+            target = Math.min(target, definition.maxLevel());
+        }
+        if (target > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Target level is too large.");
+        }
+        return setLevel(data, (int) target);
+    }
+
+    public static PlayerLevelData removeLevels(
+            PlayerLevelData data,
+            int amount
+    ) {
+        if (amount < 0) {
+            throw new IllegalArgumentException("Level amount cannot be negative.");
+        }
+        return setLevel(data, (int) Math.max(0L, (long) data.level() - amount));
+    }
+
+    public static PlayerLevelData removeExperience(
+            LevelDefinition definition,
+            PlayerLevelData data,
+            double amount
+    ) {
+        if (!Double.isFinite(amount) || amount < 0) {
+            throw new IllegalArgumentException("Experience amount must be a non-negative finite number.");
+        }
+        int level = data.level();
+        double experience = data.experience();
+        double remaining = amount;
+
+        while (remaining > experience && level > 0) {
+            remaining -= experience;
+            level--;
+            experience = definition.requiredExperience(level);
+        }
+        experience = Math.max(0, experience - remaining);
+        return data.withProgress(level, experience);
     }
 }

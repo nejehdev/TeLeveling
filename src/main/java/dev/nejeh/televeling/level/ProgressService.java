@@ -12,6 +12,7 @@ import java.util.UUID;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.UnaryOperator;
 
 public final class ProgressService {
@@ -78,6 +79,15 @@ public final class ProgressService {
             LevelDefinition definition,
             UnaryOperator<PlayerLevelData> mutation
     ) {
+        return mutate(player, definition, mutation, true);
+    }
+
+    public CompletableFuture<PlayerLevelData> mutate(
+            Player player,
+            LevelDefinition definition,
+            UnaryOperator<PlayerLevelData> mutation,
+            boolean notifyLevelUp
+    ) {
         PlayerLevelData previous = get(player, definition);
         UUID playerId = player.getUniqueId();
         String playerName = player.getName();
@@ -91,7 +101,11 @@ public final class ProgressService {
             );
         } else {
             PlayerLevelData current = get(player, definition);
-            operation = CompletableFuture.completedFuture(mutation.apply(current));
+            try {
+                operation = CompletableFuture.completedFuture(mutation.apply(current));
+            } catch (RuntimeException exception) {
+                operation = CompletableFuture.failedFuture(exception);
+            }
         }
         return operation.thenApply(updated -> {
             playerData.computeIfAbsent(playerId, ignored -> new ConcurrentHashMap<>())
@@ -100,7 +114,7 @@ public final class ProgressService {
                 Bukkit.getScheduler().runTask(plugin, () -> {
                     if (player.isOnline()) {
                         updateBar(player);
-                        if (updated.level() > previous.level()) {
+                        if (notifyLevelUp && updated.level() > previous.level()) {
                             plugin.messages().send(player, "level-up", Map.of(
                                     "level", plugin.text().formatLevel(definition, updated, true, true),
                                     "level_name", definition.name(),
@@ -112,6 +126,37 @@ public final class ProgressService {
                 });
             }
             return updated;
+        });
+    }
+
+    public CompletableFuture<Integer> resetAll(LevelDefinition definition) {
+        List<Player> onlinePlayers = List.copyOf(Bukkit.getOnlinePlayers());
+        return database.resetAll(definition).thenCompose(resetCount -> {
+            List<CompletableFuture<PlayerLevelData>> onlineResets = onlinePlayers.stream()
+                    .map(player -> database.update(
+                            player.getUniqueId(),
+                            player.getName(),
+                            definition,
+                            current -> current.withProgress(0, 0)
+                    ))
+                    .toList();
+            return CompletableFuture.allOf(onlineResets.toArray(CompletableFuture[]::new))
+                    .thenApply(ignored -> {
+                        for (int index = 0; index < onlinePlayers.size(); index++) {
+                            Player player = onlinePlayers.get(index);
+                            Map<String, PlayerLevelData> cache = playerData.computeIfAbsent(
+                                    player.getUniqueId(),
+                                    unused -> new ConcurrentHashMap<>()
+                            );
+                            cache.put(definition.id(), onlineResets.get(index).join());
+                        }
+                        if (plugin.isEnabled()) {
+                            Bukkit.getScheduler().runTask(plugin, () -> onlinePlayers.stream()
+                                    .filter(Player::isOnline)
+                                    .forEach(this::updateBar));
+                        }
+                        return resetCount;
+                    });
         });
     }
 

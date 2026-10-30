@@ -63,7 +63,7 @@ public final class LevelDefinition {
         List<String> aliases = new ArrayList<>();
         for (String alias : yaml.getStringList("command-alias")) {
             String normalized = alias.trim().toLowerCase(Locale.ROOT);
-            if (!normalized.isBlank()) {
+            if (!normalized.isBlank() && !aliases.contains(normalized)) {
                 aliases.add(normalized);
             }
         }

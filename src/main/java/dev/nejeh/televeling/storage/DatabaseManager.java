@@ -156,9 +156,30 @@ public final class DatabaseManager implements AutoCloseable {
                 definition.startingExperience()
         );
         if (!definition.synchronizedData()) {
-            return CompletableFuture.completedFuture(mutation.apply(defaults));
+            try {
+                return CompletableFuture.completedFuture(mutation.apply(defaults));
+            } catch (RuntimeException exception) {
+                return CompletableFuture.failedFuture(exception);
+            }
         }
         return submit(() -> updateBlocking(defaults, definition, mutation));
+    }
+
+    public CompletableFuture<Integer> resetAll(LevelDefinition definition) {
+        if (!definition.synchronizedData()) {
+            return CompletableFuture.completedFuture(0);
+        }
+        return submit(() -> {
+            try (Connection connection = getConnection();
+                 PreparedStatement statement = connection.prepareStatement(
+                         "UPDATE " + TABLE
+                                 + " SET player_level = 0, experience = 0, updated_at = ?"
+                                 + " WHERE column_name = ?")) {
+                statement.setLong(1, System.currentTimeMillis());
+                statement.setString(2, definition.columnName());
+                return statement.executeUpdate();
+            }
+        });
     }
 
     private PlayerLevelData updateBlocking(

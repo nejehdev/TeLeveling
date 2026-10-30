@@ -18,18 +18,15 @@ public final class DynamicLevelCommand extends Command {
                 definition.commandAliases().stream().skip(1).toList());
         this.plugin = plugin;
         this.definition = definition;
-        if (!definition.permission().isBlank()) {
-            setPermission(definition.permission());
-        }
     }
 
     @Override
     public boolean execute(CommandSender sender, String commandLabel, String[] args) {
-        return plugin.showLevel(sender, definition);
+        return plugin.executeLevelCommand(sender, definition, args, commandLabel);
     }
 
     @Override
     public List<String> tabComplete(CommandSender sender, String alias, String[] args) {
-        return List.of();
+        return plugin.completeLevelCommand(sender, definition, args);
     }
 }

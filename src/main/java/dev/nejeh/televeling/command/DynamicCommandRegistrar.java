@@ -2,6 +2,7 @@ package dev.nejeh.televeling.command;
 
 import dev.nejeh.televeling.TeLevelingPlugin;
 import dev.nejeh.televeling.level.LevelDefinition;
+import org.bukkit.command.Command;
 import org.bukkit.command.CommandMap;
 
 import java.lang.reflect.InvocationTargetException;
@@ -11,7 +12,7 @@ import java.util.List;
 
 public final class DynamicCommandRegistrar {
     private final TeLevelingPlugin plugin;
-    private final List<DynamicLevelCommand> registered = new ArrayList<>();
+    private final List<Command> registered = new ArrayList<>();
     private CommandMap commandMap;
 
     public DynamicCommandRegistrar(TeLevelingPlugin plugin) {
@@ -20,10 +21,27 @@ public final class DynamicCommandRegistrar {
 
     public void reload() {
         resolveCommandMap();
-        for (DynamicLevelCommand command : registered) {
+        for (Command command : registered) {
             command.unregister(commandMap);
         }
         registered.clear();
+
+        for (String alias : plugin.getConfig().getStringList("aliases")) {
+            String normalized = alias.trim().toLowerCase(java.util.Locale.ROOT);
+            if (!normalized.matches("[a-z0-9_-]{1,64}")) {
+                plugin.getLogger().warning("Ignoring invalid TeLeveling alias '" + alias + "'.");
+                continue;
+            }
+            if (commandMap.getCommand(normalized) != null) {
+                plugin.getLogger().warning("Could not register TeLeveling alias '/" + normalized
+                        + "' because it is already registered.");
+                continue;
+            }
+            DynamicRootAliasCommand command = new DynamicRootAliasCommand(plugin, normalized);
+            if (commandMap.register("televeling", command)) {
+                registered.add(command);
+            }
+        }
 
         for (LevelDefinition definition : plugin.levels().all().values()) {
             if (definition.commandAliases().isEmpty()) {
@@ -37,6 +55,19 @@ public final class DynamicCommandRegistrar {
             if (conflict != null) {
                 plugin.getLogger().warning("Could not register level command because '/" + conflict
                         + "' is already registered.");
+                continue;
+            }
+            for (String alias : definition.commandAliases()) {
+                if (alias.equalsIgnoreCase("televeling")
+                        || plugin.getConfig().getStringList("aliases").stream()
+                        .anyMatch(rootAlias -> rootAlias.equalsIgnoreCase(alias))) {
+                    plugin.getLogger().warning("Level command alias '" + alias
+                            + "' conflicts with a TeLeveling command alias.");
+                    conflict = alias;
+                    break;
+                }
+            }
+            if (conflict != null) {
                 continue;
             }
             DynamicLevelCommand command = new DynamicLevelCommand(plugin, definition);
@@ -64,7 +95,7 @@ public final class DynamicCommandRegistrar {
         if (commandMap == null) {
             return;
         }
-        for (DynamicLevelCommand command : registered) {
+        for (Command command : registered) {
             command.unregister(commandMap);
         }
         registered.clear();

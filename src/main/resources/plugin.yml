@@ -1,5 +1,5 @@
 name: TeLeveling
-version: 0.0.2
+version: 0.1.0
 main: dev.nejeh.televeling.TeLevelingPlugin
 api-version: '1.21'
 description: Configurable player levels and experience
@@ -12,8 +12,7 @@ libraries:
 commands:
   televeling:
     description: Manage TeLeveling and player progression
-    usage: /televeling <help|reload|addxp|removexp|setxp|setlevel|reset>
-    aliases: [tl]
+    usage: /televeling <help|reload|reset>
 permissions:
   televeling.admin:
     description: Allows managing TeLeveling and player progression
