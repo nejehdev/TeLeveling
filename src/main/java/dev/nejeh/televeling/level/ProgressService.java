@@ -31,10 +31,8 @@ public final class ProgressService {
                 player.getUniqueId(),
                 ignored -> new ConcurrentHashMap<>()
         );
-        List<CompletableFuture<PlayerLevelData>> loads = levels.all().values().stream()
-                .map(definition -> database.load(player.getUniqueId(), player.getName(), definition))
-                .toList();
-        CompletableFuture.allOf(loads.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) -> {
+        List<LevelDefinition> definitions = List.copyOf(levels.all().values());
+        database.loadAll(player.getUniqueId(), player.getName(), definitions).whenComplete((loaded, error) -> {
             if (error != null) {
                 plugin.getLogger().severe("Could not load player data: " + error.getMessage());
                 return;
@@ -42,10 +40,7 @@ public final class ProgressService {
             if (plugin.isEnabled()) {
                 Bukkit.getScheduler().runTask(plugin, () -> {
                     if (player.isOnline()) {
-                        int index = 0;
-                        for (LevelDefinition definition : levels.all().values()) {
-                            cache.put(definition.id(), loads.get(index++).join());
-                        }
+                        cache.putAll(loaded);
                         updateBar(player);
                     }
                 });
@@ -121,32 +116,43 @@ public final class ProgressService {
     }
 
     public void refreshOnlinePlayers() {
+        List<LevelDefinition> definitions = List.copyOf(levels.all().values());
+        String barLevelId = plugin.getConfig().getString("level-bar.name", "example");
         for (Player player : Bukkit.getOnlinePlayers()) {
+            UUID playerId = player.getUniqueId();
             String playerName = player.getName();
             Map<String, PlayerLevelData> cache = playerData.computeIfAbsent(
-                    player.getUniqueId(),
+                    playerId,
                     ignored -> new ConcurrentHashMap<>()
             );
-            for (LevelDefinition definition : levels.all().values()) {
-                if (!definition.synchronizedData()) {
-                    continue;
+            database.loadAll(playerId, playerName, definitions).whenComplete((loaded, error) -> {
+                if (error != null) {
+                    plugin.getLogger().severe("Could not synchronize player data for "
+                            + playerName + ": " + error.getMessage());
+                    return;
                 }
-                database.load(player.getUniqueId(), player.getName(), definition)
-                        .thenAccept(data -> {
-                            cache.put(definition.id(), data);
-                            Bukkit.getScheduler().runTask(plugin, () -> {
-                                if (player.isOnline()) {
-                                    updateBar(player);
-                                }
-                            });
-                        })
-                        .exceptionally(error -> {
-                            plugin.getLogger().severe("Could not synchronize player data for "
-                                    + playerName + ": " + error.getMessage());
-                            return null;
-                        });
-            }
+                boolean barChanged = false;
+                for (Map.Entry<String, PlayerLevelData> entry : loaded.entrySet()) {
+                    PlayerLevelData previous = cache.put(entry.getKey(), entry.getValue());
+                    if (entry.getKey().equals(barLevelId) && !sameProgress(previous, entry.getValue())) {
+                        barChanged = true;
+                    }
+                }
+                if (barChanged && plugin.isEnabled()) {
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (player.isOnline()) {
+                            updateBar(player);
+                        }
+                    });
+                }
+            });
         }
+    }
+
+    private static boolean sameProgress(PlayerLevelData first, PlayerLevelData second) {
+        return first != null
+                && first.level() == second.level()
+                && Double.compare(first.experience(), second.experience()) == 0;
     }
 
     public void updateBar(Player player) {

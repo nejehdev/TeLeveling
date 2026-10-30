@@ -13,10 +13,16 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.UnaryOperator;
 
@@ -35,15 +41,26 @@ public final class DatabaseManager implements AutoCloseable {
             throw new SQLException("storage.type must be SQLITE or MYSQL.");
         }
         this.mysql = "MYSQL".equalsIgnoreCase(storageType);
-        this.databaseExecutor = Executors.newSingleThreadExecutor(task -> {
-            Thread thread = new Thread(task, "TeLeveling-Database");
-            thread.setDaemon(true);
-            return thread;
-        });
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                1,
+                1,
+                60,
+                TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(512),
+                task -> {
+                    Thread thread = new Thread(task, "TeLeveling-Database");
+                    thread.setDaemon(true);
+                    return thread;
+                }
+        );
+        executor.allowCoreThreadTimeOut(true);
+        this.databaseExecutor = executor;
 
         HikariConfig hikari = new HikariConfig();
         hikari.setPoolName("TeLeveling");
-        hikari.setMaximumPoolSize(4);
+        hikari.setMaximumPoolSize(1);
+        hikari.setMinimumIdle(0);
+        hikari.setIdleTimeout(30000);
         hikari.setConnectionTimeout(config.getLong("storage.mysql.connection-timeout", 10000));
 
         if (mysql) {
@@ -83,40 +100,44 @@ public final class DatabaseManager implements AutoCloseable {
         }
     }
 
-    public CompletableFuture<PlayerLevelData> load(
+    public CompletableFuture<Map<String, PlayerLevelData>> loadAll(
             UUID playerId,
             String playerName,
-            LevelDefinition definition
+            Collection<LevelDefinition> definitions
     ) {
-        PlayerLevelData defaults = new PlayerLevelData(
-                playerId,
-                playerName,
-                definition.id(),
-                definition.startingLevel(),
-                definition.startingExperience()
-        );
-        if (!definition.synchronizedData()) {
-            return CompletableFuture.completedFuture(defaults);
+        Map<String, LevelDefinition> synchronizedColumns = new HashMap<>();
+        for (LevelDefinition definition : definitions) {
+            if (definition.synchronizedData()) {
+                synchronizedColumns.put(definition.columnName().toLowerCase(Locale.ROOT), definition);
+            }
         }
+        if (synchronizedColumns.isEmpty()) {
+            return CompletableFuture.completedFuture(Map.of());
+        }
+
         return submit(() -> {
+            Map<String, PlayerLevelData> result = new HashMap<>();
             try (Connection connection = getConnection();
                  PreparedStatement statement = connection.prepareStatement(
-                         "SELECT player_name, player_level, experience FROM " + TABLE
-                                 + " WHERE player_uuid = ? AND column_name = ?")) {
+                         "SELECT column_name, player_level, experience FROM " + TABLE
+                                 + " WHERE player_uuid = ?")) {
                 statement.setString(1, playerId.toString());
-                statement.setString(2, definition.columnName());
                 try (ResultSet results = statement.executeQuery()) {
-                    if (!results.next()) {
-                        return defaults;
+                    while (results.next()) {
+                        String columnName = results.getString("column_name").toLowerCase(Locale.ROOT);
+                        LevelDefinition definition = synchronizedColumns.get(columnName);
+                        if (definition != null) {
+                            result.put(definition.id(), new PlayerLevelData(
+                                    playerId,
+                                    playerName,
+                                    definition.id(),
+                                    results.getInt("player_level"),
+                                    results.getDouble("experience")
+                            ));
+                        }
                     }
-                    return new PlayerLevelData(
-                            playerId,
-                            results.getString("player_name"),
-                            definition.id(),
-                            results.getInt("player_level"),
-                            results.getDouble("experience")
-                    );
                 }
+                return Map.copyOf(result);
             }
         });
     }
@@ -244,8 +265,7 @@ public final class DatabaseManager implements AutoCloseable {
                         + "player_level INT NOT NULL,"
                         + "experience DOUBLE NOT NULL,"
                         + "updated_at BIGINT NOT NULL,"
-                        + "PRIMARY KEY (player_uuid, column_name),"
-                        + "INDEX idx_televeling_column_level (column_name, player_level)"
+                        + "PRIMARY KEY (player_uuid, column_name)"
                         + ")");
             } else {
                 statement.executeUpdate("CREATE TABLE IF NOT EXISTS " + TABLE + " ("
@@ -258,20 +278,24 @@ public final class DatabaseManager implements AutoCloseable {
                         + "updated_at INTEGER NOT NULL,"
                         + "PRIMARY KEY (player_uuid, column_name)"
                         + ")");
-                statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_televeling_column_level"
-                        + " ON " + TABLE + " (column_name, player_level)");
             }
         }
     }
 
     private <T> CompletableFuture<T> submit(SqlTask<T> task) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                return task.run();
-            } catch (SQLException exception) {
-                throw new DatabaseOperationException(exception);
-            }
-        }, databaseExecutor);
+        try {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return task.run();
+                } catch (SQLException exception) {
+                    throw new DatabaseOperationException(exception);
+                }
+            }, databaseExecutor);
+        } catch (RejectedExecutionException exception) {
+            return CompletableFuture.failedFuture(
+                    new DatabaseOperationException("Database task queue is full.", exception)
+            );
+        }
     }
 
     @Override
@@ -297,6 +321,10 @@ public final class DatabaseManager implements AutoCloseable {
     public static final class DatabaseOperationException extends RuntimeException {
         public DatabaseOperationException(SQLException cause) {
             super(cause);
+        }
+
+        public DatabaseOperationException(String message, RejectedExecutionException cause) {
+            super(message, cause);
         }
     }
 }

@@ -48,7 +48,9 @@ experience-require:
 
 La configuración `storage.type` acepta `SQLITE` o `MYSQL`. SQLite guarda el archivo en la carpeta del plugin. MySQL permite indicar host, puerto, base de datos, usuario, contraseña, SSL, validación de certificado y recuperación de clave pública. El plugin crea la tabla `televeling_player_levels`; comparte la base MySQL y el mismo `column-name` en cada servidor para sincronizar un nivel.
 
-Por ahora, la experiencia se administra con los comandos de operador; no hay recompensas automáticas por eventos del juego. Los cambios de progreso se escriben en la base de datos inmediatamente para evitar perder datos o sobrescribir XP de otro servidor. `save-time` (segundos) determina cada cuánto se vuelve a consultar el almacenamiento para actualizar la caché local de jugadores conectados. Los niveles con `syncronized: false` permanecen solo en memoria durante esa sesión.
+Por ahora, la experiencia se administra con los comandos de operador; no hay recompensas automáticas por eventos del juego. Los cambios de progreso se escriben en la base de datos inmediatamente para evitar perder datos o sobrescribir XP de otro servidor. `save-time` (segundos, 60 por defecto) determina cada cuánto se vuelve a consultar el almacenamiento para actualizar la caché local de jugadores conectados. Cada actualización consulta en una sola operación todos los niveles de cada jugador conectado. Un intervalo mayor reduce consultas y uso de CPU/DB a cambio de tardar más en reflejar cambios hechos desde otro servidor. Los niveles con `syncronized: false` permanecen solo en memoria durante esa sesión.
+
+Para reducir el consumo, TeLeveling usa una sola conexión de base de datos activa como máximo y no crea índices secundarios que no necesita para la carga de progreso. Las librerías JDBC se descargan y comparten mediante Paper en lugar de incluir copias en el JAR del plugin; Paper las almacena en su caché de librerías. Esto hace mucho más pequeño el JAR, pero no elimina el espacio que ocupa el motor de base de datos que uses en la caché de Paper.
 
 `level-bar.enabled` muestra el avance del nivel seleccionado por `level-bar.name` en la barra de experiencia de Minecraft. TeLeveling actualiza solo la barra que ve el jugador; no modifica su nivel ni su XP vanilla almacenados.
 
@@ -86,7 +88,7 @@ Los comandos de administración requieren `televeling.admin` (por defecto, opera
 .\gradlew.bat build
 ```
 
-El JAR de distribución se genera en `build/libs/TeLeveling-0.0.1.jar`.
+El JAR de distribución se genera en `build/libs/TeLeveling-0.0.2.jar`.
 
 ## Publicar una release en GitHub
 
