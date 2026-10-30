@@ -52,7 +52,7 @@ Por ahora, la experiencia se administra con los comandos de operador; no hay rec
 
 Para reducir el consumo, TeLeveling usa una sola conexión de base de datos activa como máximo y no crea índices secundarios que no necesita para la carga de progreso. Las librerías JDBC se descargan y comparten mediante Paper en lugar de incluir copias en el JAR del plugin; Paper las almacena en su caché de librerías. Esto hace mucho más pequeño el JAR, pero no elimina el espacio que ocupa el motor de base de datos que uses en la caché de Paper.
 
-`level-bar.enabled` muestra el avance del nivel seleccionado por `level-bar.name` en la barra de experiencia de Minecraft. TeLeveling actualiza solo la barra que ve el jugador; no modifica su nivel ni su XP vanilla almacenados.
+`level-bar.enabled` muestra el avance del nivel seleccionado por `level-bar.name` en la barra de experiencia de Minecraft: el contador refleja el nivel configurado del jugador y la barra representa su XP actual respecto al requisito de ese nivel. Cuando sube de nivel, el contador aumenta y la barra comienza con la XP restante de ese nuevo nivel. TeLeveling actualiza solo lo que ve el jugador; no modifica su nivel ni su XP vanilla almacenados.
 
 `messages.yml` admite mensajes como texto o listas de líneas. `{line}` repite `line-icon` según el ancho configurado y `{center}` aplica centrado aproximado con `messages.center-width`. Con PlaceholderAPI instalado, también se expanden placeholders externos dentro de los mensajes.
 
@@ -88,7 +88,7 @@ Los comandos administrativos requieren `televeling.admin` (por defecto, operador
 .\gradlew.bat build
 ```
 
-El JAR de distribución se genera en `build/libs/TeLeveling-0.1.0.jar`.
+El JAR de distribución se genera en `build/libs/TeLeveling-0.1.1.jar`.
 
 ## Publicar una release en GitHub
 

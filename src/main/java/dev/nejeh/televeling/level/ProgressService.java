@@ -214,7 +214,7 @@ public final class ProgressService {
             double required = requiredExperience(definition, data);
             progress = (float) Math.clamp(data.experience() / required, 0.0, 1.0);
         }
-        player.sendExperienceChange(progress, player.getLevel());
+        player.sendExperienceChange(progress, data.level());
     }
 
     public double requiredExperience(LevelDefinition definition, PlayerLevelData data) {
