@@ -28,7 +28,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and test
-        run: ./gradlew --no-daemon clean build
+        run: bash ./gradlew --no-daemon clean build
 
       - name: Name release JAR after tag
         env:
