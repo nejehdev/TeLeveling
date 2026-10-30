@@ -25,7 +25,7 @@ level-help:
   - "&f/{command} takexp <jugador> <cantidad> [-s] [-f]"
   - "&f/{command} takelevel <jugador> <cantidad> [-s] [-f]"
   - "&f/{command} reset <jugador> [-s] [-f]"
-level-reset-all: "&aSe reinició el nivel &f{level} &apara {count} registros."
+level-reset-all: "&aSe reinició el nivel &f{level} &apara todos los registros."
 command-xp-given: "&aDiste {amount} XP a {player} en {level}."
 command-level-given: "&aAñadiste {amount} niveles a {player} en {level}."
 command-xp-set: "&aEstableciste {amount} XP para {player} en {level}."

@@ -12,7 +12,7 @@ import java.util.UUID;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.UnaryOperator;
 
 public final class ProgressService {
@@ -20,6 +20,7 @@ public final class ProgressService {
     private final DatabaseManager database;
     private final LevelRegistry levels;
     private final Map<UUID, Map<String, PlayerLevelData>> playerData = new ConcurrentHashMap<>();
+    private final Map<UUID, AtomicLong> playerRevisions = new ConcurrentHashMap<>();
 
     public ProgressService(TeLevelingPlugin plugin, DatabaseManager database, LevelRegistry levels) {
         this.plugin = plugin;
@@ -28,29 +29,37 @@ public final class ProgressService {
     }
 
     public void loadPlayer(Player player) {
+        UUID playerId = player.getUniqueId();
         Map<String, PlayerLevelData> cache = playerData.computeIfAbsent(
-                player.getUniqueId(),
+                playerId,
                 ignored -> new ConcurrentHashMap<>()
         );
+        long revision = revision(playerId).get();
         List<LevelDefinition> definitions = List.copyOf(levels.all().values());
-        database.loadAll(player.getUniqueId(), player.getName(), definitions).whenComplete((loaded, error) -> {
+        database.loadAll(playerId, player.getName(), definitions).whenComplete((loaded, error) -> {
             if (error != null) {
                 plugin.getLogger().severe("Could not load player data: " + error.getMessage());
                 return;
             }
             if (plugin.isEnabled()) {
                 Bukkit.getScheduler().runTask(plugin, () -> {
-                    if (player.isOnline()) {
-                        cache.putAll(loaded);
+                    if (player.isOnline() && revision(playerId).get() == revision) {
+                        loaded.forEach(cache::putIfAbsent);
                         updateBar(player);
+                        if (database.isMySql()) {
+                            plugin.getLogger().info("Loaded MySQL level data for player "
+                                    + player.getName() + ".");
+                        }
                     }
                 });
             }
         });
+        updateBar(player);
     }
 
     public void unloadPlayer(Player player) {
         playerData.remove(player.getUniqueId());
+        playerRevisions.remove(player.getUniqueId());
     }
 
     public PlayerLevelData get(Player player, LevelDefinition definition) {
@@ -91,6 +100,15 @@ public final class ProgressService {
         PlayerLevelData previous = get(player, definition);
         UUID playerId = player.getUniqueId();
         String playerName = player.getName();
+        PlayerLevelData optimistic = mutation.apply(previous);
+        Map<String, PlayerLevelData> cache = playerData.computeIfAbsent(
+                playerId,
+                ignored -> new ConcurrentHashMap<>()
+        );
+        cache.put(definition.id(), optimistic);
+        long revision = revision(playerId).incrementAndGet();
+        updatePlayerDisplay(player, definition, previous, optimistic, notifyLevelUp);
+
         CompletableFuture<PlayerLevelData> operation;
         if (definition.synchronizedData()) {
             operation = database.update(
@@ -100,63 +118,91 @@ public final class ProgressService {
                     mutation
             );
         } else {
-            PlayerLevelData current = get(player, definition);
-            try {
-                operation = CompletableFuture.completedFuture(mutation.apply(current));
-            } catch (RuntimeException exception) {
-                operation = CompletableFuture.failedFuture(exception);
-            }
+            operation = CompletableFuture.completedFuture(optimistic);
         }
         return operation.thenApply(updated -> {
-            playerData.computeIfAbsent(playerId, ignored -> new ConcurrentHashMap<>())
-                    .put(definition.id(), updated);
-            if (plugin.isEnabled()) {
-                Bukkit.getScheduler().runTask(plugin, () -> {
+            if (revision(playerId).get() == revision) {
+                cache.put(definition.id(), updated);
+                updatePlayerDisplay(player, definition, optimistic, updated, notifyLevelUp);
+            }
+            return updated;
+        }).whenComplete((updated, error) -> {
+            if (error != null && revision(playerId).get() == revision
+                    && cache.replace(definition.id(), optimistic, previous)) {
+                runOnMainThread(() -> {
                     if (player.isOnline()) {
                         updateBar(player);
-                        if (notifyLevelUp && updated.level() > previous.level()) {
-                            plugin.messages().send(player, "level-up", Map.of(
-                                    "level", plugin.text().formatLevel(definition, updated, true, true),
-                                    "level_name", definition.name(),
-                                    "xp", formatNumber(updated.experience()),
-                                    "xp_required", formatNumber(requiredExperience(definition, updated))
-                            ));
-                        }
                     }
                 });
             }
-            return updated;
         });
     }
 
     public CompletableFuture<Integer> resetAll(LevelDefinition definition) {
         List<Player> onlinePlayers = List.copyOf(Bukkit.getOnlinePlayers());
-        return database.resetAll(definition).thenCompose(resetCount -> {
-            List<CompletableFuture<PlayerLevelData>> onlineResets = onlinePlayers.stream()
-                    .map(player -> database.update(
-                            player.getUniqueId(),
-                            player.getName(),
-                            definition,
-                            current -> current.withProgress(0, 0)
-                    ))
-                    .toList();
-            return CompletableFuture.allOf(onlineResets.toArray(CompletableFuture[]::new))
-                    .thenApply(ignored -> {
-                        for (int index = 0; index < onlinePlayers.size(); index++) {
-                            Player player = onlinePlayers.get(index);
-                            Map<String, PlayerLevelData> cache = playerData.computeIfAbsent(
-                                    player.getUniqueId(),
-                                    unused -> new ConcurrentHashMap<>()
-                            );
-                            cache.put(definition.id(), onlineResets.get(index).join());
+        Map<UUID, Long> resetRevisions = new ConcurrentHashMap<>();
+        Map<UUID, PlayerLevelData> resetData = new ConcurrentHashMap<>();
+        for (Player player : onlinePlayers) {
+            UUID playerId = player.getUniqueId();
+            PlayerLevelData reset = get(player, definition).withProgress(0, 0);
+            playerData.computeIfAbsent(playerId, ignored -> new ConcurrentHashMap<>())
+                    .put(definition.id(), reset);
+            resetData.put(playerId, reset);
+            resetRevisions.put(playerId, revision(playerId).incrementAndGet());
+            updateBar(player);
+        }
+        return database.resetAll(definition).thenApply(resetCount -> {
+            for (Player player : onlinePlayers) {
+                UUID playerId = player.getUniqueId();
+                if (revision(playerId).compareAndSet(
+                        resetRevisions.get(playerId),
+                        resetRevisions.get(playerId) + 1
+                )) {
+                    playerData.computeIfAbsent(playerId, ignored -> new ConcurrentHashMap<>())
+                            .put(definition.id(), resetData.get(playerId));
+                    runOnMainThread(() -> {
+                        if (player.isOnline()) {
+                            updateBar(player);
                         }
-                        if (plugin.isEnabled()) {
-                            Bukkit.getScheduler().runTask(plugin, () -> onlinePlayers.stream()
-                                    .filter(Player::isOnline)
-                                    .forEach(this::updateBar));
-                        }
-                        return resetCount;
                     });
+                }
+            }
+            return resetCount;
+        });
+    }
+
+    private AtomicLong revision(UUID playerId) {
+        return playerRevisions.computeIfAbsent(playerId, ignored -> new AtomicLong());
+    }
+
+    private void runOnMainThread(Runnable task) {
+        if (Bukkit.isPrimaryThread()) {
+            task.run();
+        } else if (plugin.isEnabled()) {
+            Bukkit.getScheduler().runTask(plugin, task);
+        }
+    }
+
+    private void updatePlayerDisplay(
+            Player player,
+            LevelDefinition definition,
+            PlayerLevelData previous,
+            PlayerLevelData updated,
+            boolean notifyLevelUp
+    ) {
+        runOnMainThread(() -> {
+            if (!player.isOnline()) {
+                return;
+            }
+            updateBar(player);
+            if (notifyLevelUp && updated.level() > previous.level()) {
+                plugin.messages().send(player, "level-up", Map.of(
+                        "level", plugin.text().formatLevel(definition, updated, true, true),
+                        "level_name", definition.name(),
+                        "xp", formatNumber(updated.experience()),
+                        "xp_required", formatNumber(requiredExperience(definition, updated))
+                ));
+            }
         });
     }
 
@@ -170,6 +216,7 @@ public final class ProgressService {
                     playerId,
                     ignored -> new ConcurrentHashMap<>()
             );
+            long revision = revision(playerId).get();
             database.loadAll(playerId, playerName, definitions).whenComplete((loaded, error) -> {
                 if (error != null) {
                     plugin.getLogger().severe("Could not synchronize player data for "
@@ -177,6 +224,9 @@ public final class ProgressService {
                     return;
                 }
                 boolean barChanged = false;
+                if (revision(playerId).get() != revision) {
+                    return;
+                }
                 for (Map.Entry<String, PlayerLevelData> entry : loaded.entrySet()) {
                     PlayerLevelData previous = cache.put(entry.getKey(), entry.getValue());
                     if (entry.getKey().equals(barLevelId) && !sameProgress(previous, entry.getValue())) {

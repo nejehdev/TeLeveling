@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.UnaryOperator;
 import java.util.logging.Level;
 
@@ -152,17 +153,11 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
                 messages.send(sender, "level-not-found", Map.of("level", args[1]));
                 return true;
             }
-            progress.resetAll(definition).whenComplete((count, error) -> runOnMainThread(() -> {
-                if (error != null) {
-                    getLogger().log(Level.SEVERE, "Could not reset all progress for " + definition.id(), error);
-                    messages.send(sender, "database-error");
-                    return;
-                }
-                messages.send(sender, "level-reset-all", Map.of(
-                        "level", definition.name(),
-                        "count", Integer.toString(count)
-                ));
-            }));
+            CompletableFuture<Integer> reset = progress.resetAll(definition);
+            messages.send(sender, "level-reset-all", Map.of("level", definition.name()));
+            reset.whenComplete((count, error) -> reportMutationFailure(
+                    sender, definition, null, error
+            ));
             return true;
         }
         messages.send(sender, "invalid-command", Map.of(
@@ -224,14 +219,15 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
         }
 
         if (action.equals("reset")) {
-            progress.mutate(
+            executeLevelMutation(
+                    sender,
                     target,
                     definition,
-                    current -> current.withProgress(0, 0),
-                    !parsed.flags().silent()
-            ).whenComplete((updated, error) -> completeLevelMutation(
-                    sender, target, definition, action, parsed.flags(), 0, error
-            ));
+                    action,
+                    parsed.flags(),
+                    0,
+                    current -> current.withProgress(0, 0)
+            );
             return true;
         }
 
@@ -252,10 +248,7 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
                 case "givelevel" -> current -> LevelProgression.addLevels(definition, current, amount);
                 default -> current -> LevelProgression.removeLevels(current, amount);
             };
-            progress.mutate(target, definition, mutation, !parsed.flags().silent())
-                    .whenComplete((updated, error) -> completeLevelMutation(
-                            sender, target, definition, action, parsed.flags(), amount, error
-                    ));
+            executeLevelMutation(sender, target, definition, action, parsed.flags(), amount, mutation);
             return true;
         }
 
@@ -278,10 +271,7 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
             case "setxp" -> current -> LevelProgression.setExperience(definition, current, roundedAmount);
             default -> current -> LevelProgression.removeExperience(definition, current, roundedAmount);
         };
-        progress.mutate(target, definition, mutation, !parsed.flags().silent())
-                .whenComplete((updated, error) -> completeLevelMutation(
-                        sender, target, definition, action, parsed.flags(), roundedAmount, error
-                ));
+        executeLevelMutation(sender, target, definition, action, parsed.flags(), roundedAmount, mutation);
         return true;
     }
 
@@ -333,10 +323,15 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
             lineIcon = getConfig().getString("line-icon", "&8■");
 
             DatabaseManager updatedDatabase = new DatabaseManager(this, getConfig());
-            if (database != null) {
-                database.close();
-            }
+            DatabaseManager previousDatabase = database;
             database = updatedDatabase;
+            if (previousDatabase != null) {
+                previousDatabase.closeAsync().whenComplete((ignored, error) -> {
+                    if (error != null) {
+                        getLogger().log(Level.SEVERE, "Could not close the previous database connection.", error);
+                    }
+                });
+            }
             progress = new ProgressService(this, database, levels);
             dynamicCommands.reload();
             scheduleStorageSynchronization();
@@ -374,56 +369,80 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
         return placeholderApiAvailable;
     }
 
-    private void completeLevelMutation(
+    private void executeLevelMutation(
             CommandSender sender,
             Player target,
             LevelDefinition definition,
             String action,
             CommandFlags flags,
             double amount,
+            UnaryOperator<PlayerLevelData> mutation
+    ) {
+        CompletableFuture<PlayerLevelData> operation;
+        try {
+            operation = progress.mutate(target, definition, mutation, !flags.silent());
+        } catch (RuntimeException exception) {
+            if (hasCause(exception, ProgressionLimitException.class)) {
+                messages.send(sender, "progression-limit-exceeded");
+            } else {
+                getLogger().log(Level.SEVERE, "Could not update " + target.getName() + "'s level data.", exception);
+                messages.send(sender, "database-error");
+            }
+            return;
+        }
+
+        Map<String, String> values = Map.of(
+                "player", target.getName(),
+                "level", definition.name(),
+                "amount", progress.formatNumber(amount)
+        );
+        String feedbackKey = switch (action) {
+            case "givexp" -> "command-xp-given";
+            case "givelevel" -> "command-level-given";
+            case "setxp" -> "command-xp-set";
+            case "setlevel" -> "command-level-set";
+            case "takexp" -> "command-xp-taken";
+            case "takelevel" -> "command-level-taken";
+            default -> "command-player-reset";
+        };
+        String targetKey = switch (action) {
+            case "givexp" -> "target-xp-given";
+            case "givelevel" -> "target-level-given";
+            case "setxp" -> "target-xp-set";
+            case "setlevel" -> "target-level-set";
+            case "takexp" -> "target-xp-taken";
+            case "takelevel" -> "target-level-taken";
+            default -> "target-player-reset";
+        };
+
+        if (!flags.noFeedback()) {
+            messages.send(sender, feedbackKey, values);
+        }
+        if (!flags.silent() && target.isOnline()) {
+            messages.send(target, targetKey, values);
+        }
+        operation.whenComplete((updated, error) -> reportMutationFailure(
+                sender, definition, target, error
+        ));
+    }
+
+    private void reportMutationFailure(
+            CommandSender sender,
+            LevelDefinition definition,
+            Player target,
             Throwable error
     ) {
+        if (error == null) {
+            return;
+        }
         runOnMainThread(() -> {
-            if (error != null) {
-                if (hasCause(error, ProgressionLimitException.class)) {
-                    messages.send(sender, "progression-limit-exceeded");
-                    return;
-                }
-                getLogger().log(Level.SEVERE, "Could not update " + target.getName() + "'s level data.", error);
-                messages.send(sender, "database-error");
+            if (hasCause(error, ProgressionLimitException.class)) {
+                messages.send(sender, "progression-limit-exceeded");
                 return;
             }
-
-            Map<String, String> values = Map.of(
-                    "player", target.getName(),
-                    "level", definition.name(),
-                    "amount", progress.formatNumber(amount)
-            );
-            String feedbackKey = switch (action) {
-                case "givexp" -> "command-xp-given";
-                case "givelevel" -> "command-level-given";
-                case "setxp" -> "command-xp-set";
-                case "setlevel" -> "command-level-set";
-                case "takexp" -> "command-xp-taken";
-                case "takelevel" -> "command-level-taken";
-                default -> "command-player-reset";
-            };
-            String targetKey = switch (action) {
-                case "givexp" -> "target-xp-given";
-                case "givelevel" -> "target-level-given";
-                case "setxp" -> "target-xp-set";
-                case "setlevel" -> "target-level-set";
-                case "takexp" -> "target-xp-taken";
-                case "takelevel" -> "target-level-taken";
-                default -> "target-player-reset";
-            };
-
-            if (!flags.noFeedback()) {
-                messages.send(sender, feedbackKey, values);
-            }
-            if (!flags.silent() && target.isOnline()) {
-                messages.send(target, targetKey, values);
-            }
+            String subject = target == null ? definition.id() : target.getName() + "'s level data";
+            getLogger().log(Level.SEVERE, "Could not persist " + subject + ".", error);
+            messages.send(sender, "database-error");
         });
     }
 

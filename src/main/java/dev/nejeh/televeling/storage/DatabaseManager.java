@@ -19,12 +19,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.UnaryOperator;
+import java.util.logging.Level;
 
 public final class DatabaseManager implements AutoCloseable {
     private static final String TABLE = "televeling_player_levels";
@@ -33,6 +35,8 @@ public final class DatabaseManager implements AutoCloseable {
     private final HikariDataSource dataSource;
     private final boolean mysql;
     private final ExecutorService databaseExecutor;
+    private final ExecutorService readExecutor;
+    private final CompletableFuture<Void> initialization;
 
     public DatabaseManager(JavaPlugin plugin, FileConfiguration config) throws SQLException {
         this.plugin = plugin;
@@ -55,12 +59,30 @@ public final class DatabaseManager implements AutoCloseable {
         );
         executor.allowCoreThreadTimeOut(true);
         this.databaseExecutor = executor;
+        ThreadPoolExecutor reads = new ThreadPoolExecutor(
+                mysql ? 3 : 1,
+                mysql ? 3 : 1,
+                60,
+                TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(512),
+                task -> {
+                    Thread thread = new Thread(task, "TeLeveling-Database-Read");
+                    thread.setDaemon(true);
+                    return thread;
+                }
+        );
+        reads.allowCoreThreadTimeOut(true);
+        this.readExecutor = reads;
 
         HikariConfig hikari = new HikariConfig();
         hikari.setPoolName("TeLeveling");
-        hikari.setMaximumPoolSize(1);
-        hikari.setMinimumIdle(0);
-        hikari.setIdleTimeout(30000);
+        hikari.setInitializationFailTimeout(-1);
+        hikari.setMaximumPoolSize(mysql ? 4 : 1);
+        hikari.setMinimumIdle(mysql ? 1 : 0);
+        hikari.setIdleTimeout(600000);
+        if (mysql) {
+            hikari.setKeepaliveTime(30000);
+        }
         hikari.setConnectionTimeout(config.getLong("storage.mysql.connection-timeout", 10000));
 
         if (mysql) {
@@ -75,6 +97,8 @@ public final class DatabaseManager implements AutoCloseable {
                     + "?useSSL=" + useSsl
                     + "&verifyServerCertificate=" + verifyCertificate
                     + "&allowPublicKeyRetrieval=" + allowPublicKey
+                    + "&connectTimeout=" + Math.max(1000,
+                    config.getLong("storage.mysql.connection-timeout", 10000))
                     + "&serverTimezone=UTC");
             hikari.setUsername(config.getString("storage.mysql.username", "root"));
             hikari.setPassword(config.getString("storage.mysql.password", ""));
@@ -91,13 +115,24 @@ public final class DatabaseManager implements AutoCloseable {
         }
 
         this.dataSource = new HikariDataSource(hikari);
-        try {
-            createSchema();
-        } catch (SQLException exception) {
-            dataSource.close();
-            databaseExecutor.shutdownNow();
-            throw exception;
-        }
+        this.initialization = CompletableFuture.runAsync(() -> {
+            try {
+                createSchema();
+                if (mysql) {
+                    plugin.getLogger().info("Successfully connected to MySQL at "
+                            + config.getString("storage.mysql.host", "localhost") + ":"
+                            + config.getInt("storage.mysql.port", 3306) + "/"
+                            + config.getString("storage.mysql.database", "teveling") + ".");
+                }
+            } catch (SQLException exception) {
+                throw new CompletionException(exception);
+            }
+        }, readExecutor);
+        initialization.whenComplete((ignored, error) -> {
+            if (error != null) {
+                plugin.getLogger().log(Level.SEVERE, "Could not connect to configured storage.", error);
+            }
+        });
     }
 
     public CompletableFuture<Map<String, PlayerLevelData>> loadAll(
@@ -115,7 +150,7 @@ public final class DatabaseManager implements AutoCloseable {
             return CompletableFuture.completedFuture(Map.of());
         }
 
-        return submit(() -> {
+        return submitRead(() -> {
             Map<String, PlayerLevelData> result = new HashMap<>();
             try (Connection connection = getConnection();
                  PreparedStatement statement = connection.prepareStatement(
@@ -162,14 +197,14 @@ public final class DatabaseManager implements AutoCloseable {
                 return CompletableFuture.failedFuture(exception);
             }
         }
-        return submit(() -> updateBlocking(defaults, definition, mutation));
+        return submitWrite(() -> updateBlocking(defaults, definition, mutation));
     }
 
     public CompletableFuture<Integer> resetAll(LevelDefinition definition) {
         if (!definition.synchronizedData()) {
             return CompletableFuture.completedFuture(0);
         }
-        return submit(() -> {
+        return submitWrite(() -> {
             try (Connection connection = getConnection();
                  PreparedStatement statement = connection.prepareStatement(
                          "UPDATE " + TABLE
@@ -303,15 +338,28 @@ public final class DatabaseManager implements AutoCloseable {
         }
     }
 
-    private <T> CompletableFuture<T> submit(SqlTask<T> task) {
+    public boolean isMySql() {
+        return mysql;
+    }
+
+    private <T> CompletableFuture<T> submitRead(SqlTask<T> task) {
+        return submit(readExecutor, task);
+    }
+
+    private <T> CompletableFuture<T> submitWrite(SqlTask<T> task) {
+        return submit(databaseExecutor, task);
+    }
+
+    private <T> CompletableFuture<T> submit(ExecutorService executor, SqlTask<T> task) {
         try {
             return CompletableFuture.supplyAsync(() -> {
                 try {
+                    initialization.join();
                     return task.run();
                 } catch (SQLException exception) {
                     throw new DatabaseOperationException(exception);
                 }
-            }, databaseExecutor);
+            }, executor);
         } catch (RejectedExecutionException exception) {
             return CompletableFuture.failedFuture(
                     new DatabaseOperationException("Database task queue is full.", exception)
@@ -322,16 +370,26 @@ public final class DatabaseManager implements AutoCloseable {
     @Override
     public void close() {
         databaseExecutor.shutdown();
+        readExecutor.shutdown();
         try {
             if (!databaseExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
                 databaseExecutor.shutdownNow();
                 plugin.getLogger().warning("Database operations did not finish before shutdown.");
             }
+            if (!readExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                readExecutor.shutdownNow();
+                plugin.getLogger().warning("Database read operations did not finish before shutdown.");
+            }
         } catch (InterruptedException exception) {
             databaseExecutor.shutdownNow();
+            readExecutor.shutdownNow();
             Thread.currentThread().interrupt();
         }
         dataSource.close();
+    }
+
+    public CompletableFuture<Void> closeAsync() {
+        return CompletableFuture.runAsync(this::close);
     }
 
     @FunctionalInterface
