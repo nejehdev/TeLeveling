@@ -39,4 +39,22 @@ public final class MessageService {
             sender.sendMessage(line);
         }
     }
+
+    public void sendTitle(
+            Player player,
+            String titleKey,
+            String subtitleKey,
+            Map<String, String> values
+    ) {
+        TextFormatter.MapValues replacements = new TextFormatter.MapValues(values);
+        List<String> titleLines = formatter.renderMessage(titleKey, player, replacements, "");
+        List<String> subtitleLines = formatter.renderMessage(subtitleKey, player, replacements, "");
+        player.sendTitle(
+                titleLines.isEmpty() ? "" : titleLines.getFirst(),
+                subtitleLines.isEmpty() ? "" : subtitleLines.getFirst(),
+                10,
+                60,
+                10
+        );
+    }
 }

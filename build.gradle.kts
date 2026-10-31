@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "dev.nejeh"
-version = "0.1.8"
+version = "0.1.9"
 
 repositories {
     mavenCentral()

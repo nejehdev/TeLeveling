@@ -42,6 +42,8 @@ target-level-taken: "&cPerdiste {amount} niveles en {level}."
 target-player-reset: "&eTu progreso en {level} fue reiniciado."
 level-up:
   - "&a¡Has subido al nivel {level}!"
+level-up-title: "&a¡Subiste de nivel!"
+level-up-subtitle: "&fAhora eres {level}"
 database-error: "&cNo se pudieron guardar/cargar los datos. Revisa la consola."
 player-level:
   - "{center}&b{level_name}"

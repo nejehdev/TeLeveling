@@ -123,7 +123,7 @@ public final class ProgressService {
         return operation.thenApply(updated -> {
             if (revision(playerId).get() == revision) {
                 cache.put(definition.id(), updated);
-                updatePlayerDisplay(player, definition, optimistic, updated, notifyLevelUp);
+                updatePlayerDisplay(player, definition, optimistic, updated, false);
             }
             return updated;
         }).whenComplete((updated, error) -> {
@@ -196,12 +196,14 @@ public final class ProgressService {
             }
             updateBar(player);
             if (notifyLevelUp && updated.level() > previous.level()) {
-                plugin.messages().send(player, "level-up", Map.of(
+                Map<String, String> values = Map.of(
                         "level", plugin.text().formatLevel(definition, updated, true, true),
                         "level_name", definition.name(),
                         "xp", formatNumber(updated.experience()),
                         "xp_required", formatNumber(requiredExperience(definition, updated))
-                ));
+                );
+                plugin.messages().send(player, "level-up", values);
+                plugin.messages().sendTitle(player, "level-up-title", "level-up-subtitle", values);
             }
         });
     }

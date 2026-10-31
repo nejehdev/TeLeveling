@@ -69,7 +69,8 @@ Para reducir el consumo, SQLite usa como máximo una conexión; MySQL conserva u
 - `/<cmd> givexp <jugador-conectado> <cantidad>`, `givelevel <jugador-conectado> <cantidad>`, `setxp <jugador-conectado> <cantidad>`, `setlevel <jugador-conectado> <nivel>`, `takexp <jugador-conectado> <cantidad>`, `takelevel <jugador-conectado> <cantidad>` y `reset <jugador-conectado>` administran el progreso.
 - `givelevel` y `takelevel` cambian niveles sin alterar la XP actual; `setlevel` fija el nivel conservando la XP actual. `setxp` reemplaza la XP del nivel y aplica los ascensos que correspondan. Al quitar XP se descienden niveles cuando hace falta y la XP restante se descuenta desde la barra del nivel anterior.
 - Para limitar cálculos y evitar valores desbordados, cada argumento numérico de comando debe ser positivo y no superar el límite configurado. No se aceptan texto, `NaN`, infinito, notación hexadecimal ni notación científica. Una operación de XP también se rechaza si cruzaría más de `10,000` niveles, incluso si el YAML define requisitos de XP muy pequeños. Para reiniciar a cero se usa `reset`.
-- Los subcomandos administrativos aceptan `-s` para silenciar el mensaje al jugador y `-f` para no enviar confirmación a quien ejecutó el comando. Se pueden combinar.
+- Los subcomandos administrativos aceptan `-s` para silenciar únicamente el mensaje directo de XP/niveles al jugador objetivo y `-f` para silenciar únicamente la confirmación al ejecutor. Se pueden combinar; los avisos de subida de nivel y el título siempre se muestran cuando el jugador sube.
+- Al subir de nivel, el jugador recibe el mensaje `level-up` y un título configurables mediante `level-up-title` y `level-up-subtitle` en `messages.yml`.
 
 Los comandos administrativos requieren `televeling.admin` (por defecto, operadores). Los jugadores necesitan el permiso configurado en el nivel solo para consultar su progreso.
 
@@ -92,7 +93,7 @@ Los comandos administrativos requieren `televeling.admin` (por defecto, operador
 .\gradlew.bat build
 ```
 
-El JAR de distribución se genera en `build/libs/TeLeveling-0.1.8.jar`.
+El JAR de distribución se genera en `build/libs/TeLeveling-0.1.9.jar`.
 
 ## Publicar una release en GitHub
 

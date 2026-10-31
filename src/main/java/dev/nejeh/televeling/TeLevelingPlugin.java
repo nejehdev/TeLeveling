@@ -380,7 +380,7 @@ public final class TeLevelingPlugin extends JavaPlugin implements Listener, Comm
     ) {
         CompletableFuture<PlayerLevelData> operation;
         try {
-            operation = progress.mutate(target, definition, mutation, !flags.silent());
+            operation = progress.mutate(target, definition, mutation, true);
         } catch (RuntimeException exception) {
             if (hasCause(exception, ProgressionLimitException.class)) {
                 messages.send(sender, "progression-limit-exceeded");
